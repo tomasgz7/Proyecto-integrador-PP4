@@ -1,65 +1,94 @@
 # 🎮 Proyecto Integrador - Juego de Lucha 2D
 
 **Materia:** Práctica Profesional 4 - Proyecto Integrador  
-**Equipo:** Natalia Laime / Desarrollo conjunto  
+**Equipo:** Desarrollo conjunto  
+- Desarrollo y arquitectura: (Tomas Guzman)  
+- UX / Diseño: Natalia Laime  
 
 ---
 
 ##  Descripción
 
-Desarrollamos un juego de lucha 2D como proyecto integrador, enfocado en la implementación de un motor de combate modular y escalable. El objetivo principal es aplicar conceptos de programación orientada a objetos, arquitectura de videojuegos y manejo de estados en un entorno real de desarrollo con Python.
+Desarrollamos un juego de lucha 2D como proyecto integrador, enfocado en la construcción de un motor de combate modular, escalable y basado en buenas prácticas de ingeniería de software.
 
-El juego está construido utilizando **Python + Pygame-CE**, con un enfoque técnico en la separación de lógica, renderizado y sistema de combate.
+El proyecto está desarrollado en **Python + Pygame-CE**, con gestión de dependencias mediante **uv**, y separado en capas de lógica, renderizado y sistema de combate.
+
+El diseño visual, dirección artística y experiencia de usuario (UX) están a cargo de Natalia Laime, quien define la identidad visual del juego, paleta de colores, diseño de personajes y consistencia estética general.
 
 ---
 
 ## ⚙️ Características Técnicas
 
-### 🧠 Máquina de Estados Finitos (FSM)
-Implementamos una **FSM (Finite State Machine)** para el control de comportamiento de los personajes. Cada entidad puede transicionar entre estados como:
+###  Máquina de Estados Finitos (FSM)
+Implementamos una **FSM (Finite State Machine)** para controlar el comportamiento de los personajes.
 
+Estados principales:
 - `IDLE`
 - `WALK`
 - `ATTACK`
 - `HURT`
 
-Esto permite una lógica desacoplada, escalable y fácil de mantener para la gestión de animaciones y comportamiento.
+Este enfoque permite desacoplar lógica de animación, entradas y comportamiento, facilitando la escalabilidad del sistema.
 
 ---
 
 ###  Sistema de profundidad (Y-Sorting)
-El renderizado utiliza un sistema de **Y-Sorting dinámico** para simular profundidad en un entorno 2.5D.
+El sistema de renderizado utiliza **Y-Sorting dinámico** para simular profundidad en un entorno 2.5D.
 
-- Los sprites se ordenan en función de su posición en el eje Y.
-- Permite superposición natural entre personajes y elementos del escenario.
-- Mejora la percepción de profundidad sin necesidad de un motor 3D.
+- Ordenamiento de sprites basado en posición Y
+- Superposición natural entre personajes y escenario
+- Simulación de profundidad sin motor 3D
 
 ---
 
-###  Sistema de combate: Hitbox / Hurtbox
-El sistema de combate está basado en la separación de colisiones en:
+### 🥊 Sistema de combate: Hitbox / Hurtbox
+El sistema de combate está basado en una separación explícita de colisiones:
 
-- **Hitbox:** área de impacto del ataque
+- **Hitbox:** área activa de ataque
 - **Hurtbox:** área vulnerable del personaje
 
-Esto permite un control preciso de los intercambios de daño y una detección de colisiones más justa y consistente.
+Esto permite detección precisa de impactos y control fino del balance de combate.
 
 ---
 
 ### 🧩 Arquitectura modular de personajes
-El sistema está diseñado para ser escalable, permitiendo la implementación de múltiples personajes.
+El sistema está diseñado con escalabilidad en mente.
 
-- Base común de lógica de personaje
+- Clase base de personaje con lógica común
 - Herencia para comportamientos específicos
-- Preparado para soportar al menos **3 personajes jugables**
+- Preparado para soportar múltiples personajes jugables (mínimo 3)
 
 ---
 
-##  Tecnologías
+##  UX / Diseño (Natalia Laime)
 
-- Python
+Responsable del diseño integral del juego:
+
+- Diseño de personajes (pixel art)
+- Definición de paleta de colores
+- Consistencia visual del entorno y UI
+- Dirección artística general
+- Recomendaciones de experiencia de usuario (UX)
+- Creación de assets en **Aseprite**
+
+Los assets se integran posteriormente al motor de juego para pruebas iterativas.
+
+---
+
+## 🧰 Tecnologías
+
+- Python 3.x
 - Pygame-CE
-- Aseprite (Pixel Art y animaciones)
+- uv (gestión de dependencias)
+- Aseprite (Pixel Art)
 
 ---
 
+## 📦 Instalación y ejecución
+
+```bash
+# Instalar dependencias
+uv add pygame-ce
+
+# Ejecutar el proyecto
+uv run python main.py
