@@ -5,10 +5,10 @@ import math
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONFIGURACIÓN
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────── ───────────
 CANVAS_W, CANVAS_H = 480, 270
 WIN_W,    WIN_H    = 1280, 720 
-FPS        = 60
+FPS        = 60 
 TITLE      = "PEDRO BALANZAT - La Raqueta de la Justicia"
 
 FLOOR_Y    = 248   # Y donde pisan todos los personajes (midbottom)
@@ -686,16 +686,67 @@ def show_title(canvas, win, clock):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  PANTALLA DE CUENTA REGRESIVA (continuar / volver al inicio)
+# ─────────────────────────────────────────────────────────────────────────────
+def show_countdown(canvas, win, clock, lines):
+    """
+    Muestra el resultado con un contador de 10 segundos.
+    Retorna True si el jugador presionó una tecla (reiniciar ya),
+    False si el tiempo se agotó (volver al título).
+    """
+    font_big = pygame.font.SysFont("monospace", 20, bold=True)
+    font_med = pygame.font.SysFont("monospace", 10, bold=False)
+    font_sml = pygame.font.SysFont("monospace", 7)
+
+    deadline = pygame.time.get_ticks() + 10000  # 10 segundos
+
+    while True:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if ev.type == pygame.KEYDOWN:
+                if ev.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+                return True  # el jugador quiere continuar
+
+        remaining = max(0, (deadline - pygame.time.get_ticks() + 999) // 1000)
+        if remaining == 0:
+            return False  # tiempo agotado → ir al título
+
+        canvas.fill((8, 8, 20))
+        total_h = (len(lines) + 3) * 22
+        start_y = (CANVAS_H - total_h) // 2
+
+        for i, ln in enumerate(lines):
+            f = {"big": font_big, "med": font_med, "small": font_sml}.get(ln["size"], font_med)
+            t = f.render(ln["text"], True, ln["color"])
+            canvas.blit(t, (CANVAS_W//2 - t.get_width()//2, start_y + i * 22))
+
+        y_cd = start_y + len(lines) * 22 + 11
+        if (pygame.time.get_ticks() // 500) % 2 == 0:
+            cd = font_med.render(f"Presiona una tecla para jugar de nuevo  ({remaining}s)", True, (255, 220, 0))
+            canvas.blit(cd, (CANVAS_W//2 - cd.get_width()//2, y_cd))
+        hint = font_sml.render("Sin tecla → volver al inicio", True, (140, 140, 140))
+        canvas.blit(hint, (CANVAS_W//2 - hint.get_width()//2, y_cd + 16))
+
+        scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
+        win.blit(scaled, (0, 0))
+        pygame.display.flip()
+        clock.tick(FPS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    global WIN_W, WIN_H
     pygame.init()
-    win    = pygame.display.set_mode((WIN_W, WIN_H))
+    win   = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    WIN_W, WIN_H = win.get_size()
     pygame.display.set_caption(TITLE)
     canvas = pygame.Surface((CANVAS_W, CANVAS_H))
     clock  = pygame.time.Clock()
-
-    font_hud  = pygame.font.SysFont("monospace", 6, bold=True)
+    font_hud = pygame.font.SysFont("monospace", 6, bold=True)
 
     # ── Fondo ──
     background = make_fallback_bg()
@@ -708,134 +759,125 @@ def main():
         except:
             pass
 
-    # ── Título ──
-    show_title(canvas, win, clock)
+    go_to_title = True
 
-    # ── Crear jugador ──
-    player = Player(60)
+    # ── LOOP EXTERNO DE REINICIO ──
+    while True:
+        if go_to_title:
+            show_title(canvas, win, clock)
 
-    # ── Crear 10 enemigos distribuidos en la pantalla ──
-    enemies   = pygame.sprite.Group()
-    Enemy._eid = 0
-    # Los ponemos fuera de pantalla a la derecha, espaciados
-    for i in range(10):
-        ex = CANVAS_W + 40 + i * 60
-        ey = random.uniform(FLOOR_TOP + 5, FLOOR_BOT - 5)
-        enemies.add(Enemy(ex, ey))
+        # ── Inicializar estado de juego ──
+        player = Player(60)
+        enemies = pygame.sprite.Group()
+        Enemy._eid = 0
+        for i in range(10):
+            ex = CANVAS_W + 40 + i * 60
+            ey = random.uniform(FLOOR_TOP + 5, FLOOR_BOT - 5)
+            enemies.add(Enemy(ex, ey))
 
-    boss         = None
-    boss_spawned = False
-    hit_fx       = []
-    score        = 0
-    wave         = 1
+        boss         = None
+        boss_spawned = False
+        hit_fx       = []
+        score        = 0
+        wave         = 1
+        outcome      = None
 
-    # ── LOOP PRINCIPAL ──
-    running = True
-    while running:
-        clock.tick(FPS)
+        # ── LOOP PRINCIPAL ──
+        running = True
+        while running:
+            clock.tick(FPS)
 
-        # EVENTOS
-        for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                running = False
-            if ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_ESCAPE:
-                    running = False
-                if ev.key in (pygame.K_SPACE, pygame.K_z, pygame.K_j):
-                    player.start_attack()
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                if ev.type == pygame.KEYDOWN:
+                    if ev.key == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
+                    if ev.key in (pygame.K_SPACE, pygame.K_z, pygame.K_j):
+                        player.start_attack()
 
-        if not running: break
+            player.update()
 
-        # UPDATE JUGADOR
-        player.update()
+            if player.atk_active:
+                ar = player.get_attack_rect()
+                for en in list(enemies):
+                    if en.alive and ar.colliderect(en.get_hitbox()):
+                        en.take_damage(22)
+                        score += 10
+                        hit_fx.append(HitFX(en.rect.centerx, en.rect.centery))
+                if boss and boss.alive and ar.colliderect(boss.get_hitbox()):
+                    boss.take_damage(8)
+                    score += 20
+                    hit_fx.append(HitFX(boss.rect.centerx, boss.rect.centery))
 
-        # DETECCIÓN DE GOLPES (solo en ventana activa)
-        if player.atk_active:
-            ar = player.get_attack_rect()
             for en in list(enemies):
-                if en.alive and ar.colliderect(en.get_hitbox()):
-                    en.take_damage(22)
-                    score += 10
-                    hit_fx.append(HitFX(en.rect.centerx, en.rect.centery))
-            if boss and boss.alive and ar.colliderect(boss.get_hitbox()):
-                boss.take_damage(8)
-                score += 20
-                hit_fx.append(HitFX(boss.rect.centerx, boss.rect.centery))
+                en.update(player)
 
-        # UPDATE ENEMIGOS
-        for en in list(enemies):
-            en.update(player)
+            if boss:
+                boss.update(player)
 
-        # UPDATE BOSS
-        if boss:
-            boss.update(player)
+            alive_enemies = [e for e in enemies if e.alive]
+            if not boss_spawned and len(alive_enemies) == 0:
+                boss_spawned = True
+                wave = 2
+                boss = Boss(CANVAS_W - 50)
+                print("[OK] Boss spawneado!")
 
-        # SPAWN BOSS — cuando TODOS los enemigos están muertos
-        alive_enemies = [e for e in enemies if e.alive]
-        if not boss_spawned and len(alive_enemies) == 0:
-            boss_spawned = True
-            wave = 2
-            boss = Boss(CANVAS_W - 50)
-            print("[OK] Boss spawneado!")
+            for fx in hit_fx: fx.update()
+            hit_fx = [fx for fx in hit_fx if not fx.done()]
 
-        # HIT EFFECTS
-        for fx in hit_fx: fx.update()
-        hit_fx = [fx for fx in hit_fx if not fx.done()]
+            # ── RENDER ──
+            canvas.blit(background, (0, 0))
 
-        # ── RENDER ──
-        canvas.blit(background, (0, 0))
+            drawables = []
+            for en in enemies:
+                if en.alive: drawables.append(en)
+            if boss and boss.alive: drawables.append(boss)
+            drawables.append(player)
+            drawables.sort(key=lambda o: o.y)
 
-        # Depth sort (Y-sort): quien tiene mayor Y se dibuja encima
-        drawables = []
-        for en in enemies:
-            if en.alive: drawables.append(en)
-        if boss and boss.alive: drawables.append(boss)
-        drawables.append(player)
-        drawables.sort(key=lambda o: o.y)
+            for obj in drawables:
+                canvas.blit(obj.image, obj.rect)
+                if isinstance(obj, Enemy):
+                    obj.draw_hp_bar(canvas)
 
-        for obj in drawables:
-            canvas.blit(obj.image, obj.rect)
-            if isinstance(obj, Enemy):
-                obj.draw_hp_bar(canvas)
+            for fx in hit_fx: fx.draw(canvas)
 
-        # Hit effects
-        for fx in hit_fx: fx.draw(canvas)
+            alive_count = len([e for e in enemies if e.alive])
+            draw_hud(canvas, player, score, wave, alive_count if not boss_spawned else 0, font_hud)
 
-        # HUD
-        alive_count = len([e for e in enemies if e.alive])
-        draw_hud(canvas, player, score, wave, alive_count if not boss_spawned else 0, font_hud)
+            if boss and boss.alive:
+                boss.draw_boss_bar(canvas, font_hud)
 
-        if boss and boss.alive:
-            boss.draw_boss_bar(canvas, font_hud)
+            scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
+            win.blit(scaled, (0, 0))
+            pygame.display.flip()
 
-        # Escalar
-        scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
-        win.blit(scaled, (0, 0))
-        pygame.display.flip()
+            # ── CONDICIONES DE FIN ──
+            if not player.alive:
+                outcome = "lose"
+                running = False
+            elif boss and not boss.alive:
+                outcome = "win"
+                running = False
 
-        # ── CONDICIONES DE FIN ──
-        if not player.alive:
-            show_screen(canvas, win, clock, [
-                {"text": "GAME OVER",                   "color":(220,40,40),  "size":"big"},
-                {"text": "Pedro cayó en la batalla...", "color":(180,180,180),"size":"med"},
-                {"text": f"Score: {score}",             "color":(255,255,255),"size":"med"},
-                {"text": "",                            "color":(0,0,0),      "size":"small"},
-                {"text": "Presiona cualquier tecla",    "color":(150,150,150),"size":"small","blink":True},
-            ])
-            running = False
+        # ── PANTALLA DE RESULTADO CON CUENTA REGRESIVA ──
+        if outcome == "lose":
+            result_lines = [
+                {"text": "GAME OVER",                   "color": (220, 40, 40),   "size": "big"},
+                {"text": "Pedro cayó en la batalla...", "color": (180, 180, 180), "size": "med"},
+                {"text": f"Score: {score}",             "color": (255, 255, 255), "size": "med"},
+            ]
+        else:
+            result_lines = [
+                {"text": "¡VICTORIA!",                 "color": (255, 220, 0),   "size": "big"},
+                {"text": "Forest Gump fue derrotado.", "color": (100, 220, 100), "size": "med"},
+                {"text": "IFTS 21 está a salvo!",      "color": (180, 220, 255), "size": "med"},
+                {"text": f"Score final: {score}",      "color": (255, 255, 255), "size": "med"},
+            ]
 
-        if boss and not boss.alive:
-            show_screen(canvas, win, clock, [
-                {"text": "¡VICTORIA!",                      "color":(255,220,0),  "size":"big"},
-                {"text": "Forest Gump fue derrotado.",      "color":(100,220,100),"size":"med"},
-                {"text": "IFTS 21 está a salvo!",           "color":(180,220,255),"size":"med"},
-                {"text": f"Score final: {score}",           "color":(255,255,255),"size":"med"},
-                {"text": "",                                "color":(0,0,0),      "size":"small"},
-                {"text": "Presiona cualquier tecla",        "color":(150,150,150),"size":"small","blink":True},
-            ])
-            running = False
-
-    pygame.quit()
+        pressed = show_countdown(canvas, win, clock, result_lines)
+        go_to_title = not pressed  # si no presionó → mostrar título; si presionó → reiniciar directo
 
 
 if __name__ == "__main__":
