@@ -15,38 +15,49 @@ FLOOR_Y    = 248   # Y donde pisan todos los personajes (midbottom)
 FLOOR_TOP  = 212   # límite superior de la zona caminable
 FLOOR_BOT  = 254   # límite inferior
 
-BG_COLOR   = (0, 0, 0)   # colorkey sprites (fondo negro)
+BG_COLOR   = (255, 255, 255)   # colorkey sprites (fondo blanco)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  UTILIDADES DE CARGA
 # ─────────────────────────────────────────────────────────────────────────────
-def load_sheet(path, n_frames, out_h, colorkey=BG_COLOR):
-    """
-    Carga un spritesheet horizontal de n_frames.
-    Escala cada frame proporcionalmente a out_h de altura.
-    Retorna lista de (Surface, pivot_offset_x) donde pivot_offset_x
-    es el desplazamiento para que el centro visual coincida con rect.centerx.
-    """
+def load_sheet(path, n_frames, out_h, colorkey=None, trim=False):
+    """Carga un spritesheet horizontal de n_frames con fondo transparente.
+    trim=True recorta el espacio vacío de cada frame para evitar jitter.
+    colorkey=(r,g,b) hace transparente ese color en imágenes sin canal alpha."""
     try:
-        sheet = pygame.image.load(path).convert()
-        sheet.set_colorkey(colorkey, pygame.RLEACCEL)
-        sw, sh  = sheet.get_size()
-        fw      = sw // n_frames
-        scale   = out_h / sh
-        out_w   = int(fw * scale)
-        frames  = []
+        from PIL import Image as PILImage
+        pil = PILImage.open(path).convert("RGBA")
+
+        # Si el original no tenía alpha y hay colorkey, reemplazar ese color por transparente
+        if colorkey is not None:
+            import numpy as np
+            arr = np.array(pil)
+            r, g, b = colorkey
+            mask = (arr[:, :, 0] == r) & (arr[:, :, 1] == g) & (arr[:, :, 2] == b)
+            arr[mask, 3] = 0
+            pil = PILImage.fromarray(arr)
+
+        pw, ph = pil.size
+        fw = pw // n_frames
+        scale = out_h / ph
+        frames = []
         for i in range(n_frames):
-            raw = pygame.Surface((fw, sh))
-            raw.fill(colorkey)
-            raw.blit(sheet, (0, 0), (i * fw, 0, fw, sh))
-            raw.set_colorkey(colorkey, pygame.RLEACCEL)
-            scaled = pygame.transform.scale(raw, (out_w, out_h))
-            frames.append(scaled)
+            cell = pil.crop((i * fw, 0, (i + 1) * fw, ph))
+            if trim:
+                bbox = cell.getbbox()
+                if bbox:
+                    cell = cell.crop(bbox)
+            cw, ch = cell.size
+            new_w = max(1, round(cw * scale))
+            new_h = max(1, round(ch * scale))
+            cell = cell.resize((new_w, new_h), PILImage.NEAREST)
+            raw = pygame.image.fromstring(cell.tobytes(), cell.size, "RGBA")
+            frames.append(raw.convert_alpha())
         return frames
     except Exception as e:
         print(f"[WARN] {path}: {e}")
-        s = pygame.Surface((int(out_h * 0.55), out_h))
-        s.fill((255, 0, 0))
+        s = pygame.Surface((int(out_h * 0.55), out_h), pygame.SRCALPHA)
+        s.fill((255, 0, 0, 255))
         return [s]
 
 
@@ -85,7 +96,7 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
 
         self.atk_frames  = load_sheet("assets/spritesheet-bz.png",        7, self.HEIGHT)
-        self.walk_frames = load_sheet("assets/balanzat_movimiento.png",    7, self.HEIGHT)
+        self.walk_frames = load_sheet("assets/balanzat_movimiento.png",    8, self.HEIGHT, trim=True)
 
         # Estado
         self.facing       = 1       # 1=der, -1=izq
@@ -113,7 +124,7 @@ class Player(pygame.sprite.Sprite):
 
     def _sync_rect(self):
         """Mantiene rect.midbottom sincronizado con (x, y)."""
-        self.rect.midbottom = (int(self.x), int(self.y))
+        self.rect.midbottom = (round(self.x), round(self.y))
 
     def _set_frame(self, frames, idx):
         """Cambia frame respetando el facing sin mover la posición."""
@@ -185,12 +196,12 @@ class Player(pygame.sprite.Sprite):
         if moving:
             ln = math.hypot(dx, dy)
             self.x += (dx / ln) * self.speed
-            self.y += (dy / ln) * self.speed * 0.55  # perspectiva 2.5D
+            self.y += (dy / ln) * self.speed * 0.5   # perspectiva 2.5D
             if dx != 0:
                 self.facing = 1 if dx > 0 else -1
 
-        # Límites canvas
-        hw = self.rect.w // 2
+        # Límites canvas (ancho fijo para evitar jitter entre frames de distinto tamaño)
+        hw = 30
         self.x = max(hw, min(CANVAS_W - hw, self.x))
         self.y = max(FLOOR_TOP, min(FLOOR_BOT, self.y))
         self._sync_rect()
@@ -278,7 +289,7 @@ class Enemy(pygame.sprite.Sprite):
         return frames
 
     def _sync_rect(self):
-        self.rect.midbottom = (int(self.x), int(self.y))
+        self.rect.midbottom = (round(self.x), round(self.y))
 
     def get_hitbox(self):
         r = self.rect
@@ -396,7 +407,7 @@ class Boss(pygame.sprite.Sprite):
             pygame.draw.rect(s, (235,235,235), (int(7*sc),  int(30*sc), int(23*sc), int(30*sc)))
             # número
             font_s = pygame.font.SysFont("monospace", max(6, int(10*sc)), bold=True)
-            num = font_s.render("9", True, (40,60,160))
+            num = font_s.render("9", False, (40,60,160))
             s.blit(num, (int(15*sc), int(35*sc)))
             # brazos
             pygame.draw.rect(s, (235,235,235), (int(0*sc),  int(33*sc)+arm, int(9*sc), int(18*sc)))
@@ -421,7 +432,7 @@ class Boss(pygame.sprite.Sprite):
         return frames
 
     def _sync_rect(self):
-        self.rect.midbottom = (int(self.x), int(self.y))
+        self.rect.midbottom = (round(self.x), round(self.y))
 
     def get_hitbox(self):
         r = self.rect
@@ -498,10 +509,10 @@ class Boss(pygame.sprite.Sprite):
         pygame.draw.rect(canvas, col,         (bx, by, fill, bh))
         pygame.draw.rect(canvas, (220,220,220),(bx, by, bw, bh), 1)
 
-        lbl = font.render("BOSS: FOREST GUMP", True, (255,255,255))
+        lbl = font.render("BOSS: FOREST GUMP", False, (255,255,255))
         canvas.blit(lbl, (bx, by - 9))
         if self.phase == 2:
-            ph2 = font.render("¡FASE 2!", True, (255,50,50))
+            ph2 = font.render("¡FASE 2!", False, (255,50,50))
             canvas.blit(ph2, (bx + bw + 4, by))
 
 
@@ -547,16 +558,16 @@ def draw_hud(canvas, player, score, wave, enemies_left, font):
     pygame.draw.rect(canvas, col_hp,      (bx, by, fill, bh))
     pygame.draw.rect(canvas, (200,200,200),(bx, by, bw, bh), 1)
 
-    name_lbl = font.render(f"PEDRO  {player.hp}/{player.max_hp}", True, (255,255,255))
+    name_lbl = font.render(f"PEDRO  {player.hp}/{player.max_hp}", False, (255,255,255))
     canvas.blit(name_lbl, (bx, by + bh + 2))
 
     # Score
-    sc_lbl = font.render(f"SCORE: {score}", True, (255,220,0))
+    sc_lbl = font.render(f"SCORE: {score}", False, (255,220,0))
     canvas.blit(sc_lbl, (CANVAS_W - sc_lbl.get_width() - 4, 5))
 
     # Oleada / enemigos
     if enemies_left > 0:
-        en_lbl = font.render(f"OLA {wave}  ENEMIGOS: {enemies_left}", True, (220,220,220))
+        en_lbl = font.render(f"OLA {wave}  ENEMIGOS: {enemies_left}", False, (220,220,220))
         canvas.blit(en_lbl, (CANVAS_W//2 - en_lbl.get_width()//2, 5))
 
 
@@ -568,9 +579,9 @@ def show_screen(canvas, win, clock, lines):
     lines = lista de dict: {text, color, size ('big'|'med'|'small'), blink}
     Espera ENTER / SPACE / cualquier tecla.
     """
-    font_big  = pygame.font.SysFont("monospace", 20, bold=True)
-    font_med  = pygame.font.SysFont("monospace", 10, bold=False)
-    font_sml  = pygame.font.SysFont("monospace", 7)
+    font_big  = pygame.font.SysFont("monospace", 24, bold=True)
+    font_med  = pygame.font.SysFont("monospace", 14)
+    font_sml  = pygame.font.SysFont("monospace", 11)
 
     waiting = True
     while waiting:
@@ -589,11 +600,10 @@ def show_screen(canvas, win, clock, lines):
             if ln.get("blink") and (pygame.time.get_ticks() // 500) % 2 == 0:
                 continue
             f = {"big": font_big, "med": font_med, "small": font_sml}.get(ln["size"], font_med)
-            t = f.render(ln["text"], True, ln["color"])
+            t = f.render(ln["text"], False, ln["color"])
             canvas.blit(t, (CANVAS_W//2 - t.get_width()//2, start_y + i * 22))
 
-        scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
-        win.blit(scaled, (0,0))
+        blit_canvas(win, canvas)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -602,9 +612,9 @@ def show_screen(canvas, win, clock, lines):
 #  PANTALLA DE TÍTULO LLAMATIVA
 # ─────────────────────────────────────────────────────────────────────────────
 def show_title(canvas, win, clock):
-    font_title = pygame.font.SysFont("monospace", 18, bold=True)
-    font_sub   = pygame.font.SysFont("monospace", 9,  bold=True)
-    font_hint  = pygame.font.SysFont("monospace", 7)
+    font_title = pygame.font.SysFont("monospace", 22, bold=True)
+    font_sub   = pygame.font.SysFont("monospace", 13, bold=True)
+    font_hint  = pygame.font.SysFont("monospace", 11)
 
     t_start = pygame.time.get_ticks()
     waiting = True
@@ -636,27 +646,27 @@ def show_title(canvas, win, clock):
 
         # Sombra del título
         offset = int(math.sin(t * 0.003) * 2)
-        shadow = font_title.render("PEDRO BALANZAT", True, (60, 20, 20))
+        shadow = font_title.render("PEDRO BALANZAT", False, (60, 20, 20))
         canvas.blit(shadow, (CANVAS_W//2 - shadow.get_width()//2 + 2, 52))
 
         # Título principal con efecto de color pulsante
         pulse = int(abs(math.sin(t * 0.004)) * 60)
         title_col = (255, 200 + pulse//3, pulse)
-        title = font_title.render("PEDRO BALANZAT", True, title_col)
+        title = font_title.render("PEDRO BALANZAT", False, title_col)
         canvas.blit(title, (CANVAS_W//2 - title.get_width()//2, 50))
 
         # Subtítulo
-        sub1 = font_sub.render("La Raqueta de la Justicia", True, (200, 200, 255))
+        sub1 = font_sub.render("La Raqueta de la Justicia", False, (200, 200, 255))
         canvas.blit(sub1, (CANVAS_W//2 - sub1.get_width()//2, 78))
 
         # VS
         vs_scale = 1.0 + abs(math.sin(t * 0.005)) * 0.15
-        vs_surf  = font_sub.render("~~  VS  ~~", True, (255, 80, 80))
+        vs_surf  = font_sub.render("~~  VS  ~~", False, (255, 80, 80))
         canvas.blit(vs_surf, (CANVAS_W//2 - vs_surf.get_width()//2, 98))
 
         # Boss name
         boss_col = (255, int(80 + abs(math.sin(t*0.006))*120), 30)
-        boss = font_sub.render("FOREST GUMP", True, boss_col)
+        boss = font_sub.render("FOREST GUMP", False, boss_col)
         canvas.blit(boss, (CANVAS_W//2 - boss.get_width()//2, 115))
 
         # Línea separadora decorativa
@@ -665,22 +675,21 @@ def show_title(canvas, win, clock):
         pygame.draw.line(canvas, (100,80,200), (lx, 132), (lx+lw, 132), 1)
 
         # Controles
-        ctrl1 = font_hint.render("WASD / Flechas: Mover", True, (180,180,180))
-        ctrl2 = font_hint.render("ESPACIO / Z: Atacar con raqueta", True, (180,180,180))
+        ctrl1 = font_hint.render("WASD / Flechas: Mover", False, (180,180,180))
+        ctrl2 = font_hint.render("ESPACIO / Z: Atacar con raqueta", False, (180,180,180))
         canvas.blit(ctrl1, (CANVAS_W//2 - ctrl1.get_width()//2, 148))
         canvas.blit(ctrl2, (CANVAS_W//2 - ctrl2.get_width()//2, 158))
 
         # Parpadeo inicio
         if (t // 500) % 2 == 0:
-            start = font_hint.render(">> PRESIONA ENTER PARA COMENZAR <<", True, (255,255,100))
+            start = font_hint.render(">> PRESIONA ENTER PARA COMENZAR <<", False, (255,255,100))
             canvas.blit(start, (CANVAS_W//2 - start.get_width()//2, 175))
 
         # IFTS badge
-        badge = font_hint.render("IFTS N°21 - 2025", True, (120,120,120))
+        badge = font_hint.render("IFTS N°21 - 2025", False, (120,120,120))
         canvas.blit(badge, (CANVAS_W//2 - badge.get_width()//2, CANVAS_H - 12))
 
-        scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
-        win.blit(scaled, (0,0))
+        blit_canvas(win, canvas)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -694,9 +703,9 @@ def show_countdown(canvas, win, clock, lines):
     Retorna True si el jugador presionó una tecla (reiniciar ya),
     False si el tiempo se agotó (volver al título).
     """
-    font_big = pygame.font.SysFont("monospace", 20, bold=True)
-    font_med = pygame.font.SysFont("monospace", 10, bold=False)
-    font_sml = pygame.font.SysFont("monospace", 7)
+    font_big = pygame.font.SysFont("monospace", 24, bold=True)
+    font_med = pygame.font.SysFont("monospace", 14)
+    font_sml = pygame.font.SysFont("monospace", 11)
 
     deadline = pygame.time.get_ticks() + 10000  # 10 segundos
 
@@ -719,18 +728,17 @@ def show_countdown(canvas, win, clock, lines):
 
         for i, ln in enumerate(lines):
             f = {"big": font_big, "med": font_med, "small": font_sml}.get(ln["size"], font_med)
-            t = f.render(ln["text"], True, ln["color"])
+            t = f.render(ln["text"], False, ln["color"])
             canvas.blit(t, (CANVAS_W//2 - t.get_width()//2, start_y + i * 22))
 
         y_cd = start_y + len(lines) * 22 + 11
         if (pygame.time.get_ticks() // 500) % 2 == 0:
-            cd = font_med.render(f"Presiona una tecla para jugar de nuevo  ({remaining}s)", True, (255, 220, 0))
+            cd = font_med.render(f"Presiona una tecla para jugar de nuevo  ({remaining}s)", False, (255, 220, 0))
             canvas.blit(cd, (CANVAS_W//2 - cd.get_width()//2, y_cd))
-        hint = font_sml.render("Sin tecla → volver al inicio", True, (140, 140, 140))
+        hint = font_sml.render("Sin tecla → volver al inicio", False, (140, 140, 140))
         canvas.blit(hint, (CANVAS_W//2 - hint.get_width()//2, y_cd + 16))
 
-        scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
-        win.blit(scaled, (0, 0))
+        blit_canvas(win, canvas)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -738,6 +746,15 @@ def show_countdown(canvas, win, clock, lines):
 # ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────────────────────────────────────
+def blit_canvas(win, canvas):
+    """Escala el canvas al mayor múltiplo entero que entre en la ventana (sin distorsión)."""
+    scale = min(WIN_W // CANVAS_W, WIN_H // CANVAS_H)
+    sw, sh = CANVAS_W * scale, CANVAS_H * scale
+    ox, oy = (WIN_W - sw) // 2, (WIN_H - sh) // 2
+    win.fill((0, 0, 0))
+    win.blit(pygame.transform.scale(canvas, (sw, sh)), (ox, oy))
+
+
 def main():
     global WIN_W, WIN_H
     pygame.init()
@@ -746,7 +763,7 @@ def main():
     pygame.display.set_caption(TITLE)
     canvas = pygame.Surface((CANVAS_W, CANVAS_H))
     clock  = pygame.time.Clock()
-    font_hud = pygame.font.SysFont("monospace", 6, bold=True)
+    font_hud = pygame.font.SysFont("monospace", 12, bold=True)
 
     # ── Fondo ──
     background = make_fallback_bg()
@@ -849,8 +866,7 @@ def main():
             if boss and boss.alive:
                 boss.draw_boss_bar(canvas, font_hud)
 
-            scaled = pygame.transform.scale(canvas, (WIN_W, WIN_H))
-            win.blit(scaled, (0, 0))
+            blit_canvas(win, canvas)
             pygame.display.flip()
 
             # ── CONDICIONES DE FIN ──
