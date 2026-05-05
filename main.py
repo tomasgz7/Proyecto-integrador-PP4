@@ -96,7 +96,7 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
 
         self.atk_frames  = load_sheet("assets/spritesheet-bz.png",        7, self.HEIGHT)
-        self.walk_frames = load_sheet("assets/balanzat_movimiento.png",    8, self.HEIGHT, trim=True)
+        self.walk_frames = load_sheet("assets/balanzat_movimiento.png",    8, self.HEIGHT)
 
         # Estado
         self.facing       = 1       # 1=der, -1=izq
@@ -549,7 +549,7 @@ class HitFX:
 #  CORAZÓN RECUPERABLE
 # ─────────────────────────────────────────────────────────────────────────────
 class HeartPickup:
-    HEAL_AMOUNT  = 30
+    HEAL_AMOUNT  = 50
     SPAWN_EVERY  = 5   # cada 5 enemigos eliminados aparece un corazón
     LIFETIME     = 600 # frames que dura en pantalla (10 seg a 60fps)
     BOB_SPEED    = 0.08
@@ -680,23 +680,28 @@ def show_screen(canvas, win, clock, lines):
 #  PANTALLA DE TÍTULO LLAMATIVA
 # ─────────────────────────────────────────────────────────────────────────────
 def show_title(canvas, win, clock):
+    """Retorna el nivel desde el que empezar (1-5)."""
     font_title = pygame.font.SysFont("monospace", 22, bold=True)
     font_sub   = pygame.font.SysFont("monospace", 13, bold=True)
     font_hint  = pygame.font.SysFont("monospace", 11)
 
     t_start = pygame.time.get_ticks()
-    waiting = True
     particles = [(random.randint(0,CANVAS_W), random.randint(0,CANVAS_H),
                   random.uniform(-0.3,0.3), random.uniform(-0.5,-0.1),
                   random.choice([(255,220,0),(255,100,30),(200,50,200),(50,150,255)]))
                  for _ in range(40)]
 
-    while waiting:
+    while True:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if ev.type == pygame.KEYDOWN:
-                waiting = False
+                if ev.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+                if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    return 1  # empezar desde nivel 1
+                if ev.key == pygame.K_s:
+                    return show_level_select(canvas, win, clock)  # selector de nivel
 
         t = pygame.time.get_ticks() - t_start
 
@@ -713,7 +718,6 @@ def show_title(canvas, win, clock):
                      for px,py,pvx,pvy,pc in particles]
 
         # Sombra del título
-        offset = int(math.sin(t * 0.003) * 2)
         shadow = font_title.render("PEDRO BALANZAT", False, (60, 20, 20))
         canvas.blit(shadow, (CANVAS_W//2 - shadow.get_width()//2 + 2, 52))
 
@@ -728,7 +732,6 @@ def show_title(canvas, win, clock):
         canvas.blit(sub1, (CANVAS_W//2 - sub1.get_width()//2, 78))
 
         # VS
-        vs_scale = 1.0 + abs(math.sin(t * 0.005)) * 0.15
         vs_surf  = font_sub.render("~~  VS  ~~", False, (255, 80, 80))
         canvas.blit(vs_surf, (CANVAS_W//2 - vs_surf.get_width()//2, 98))
 
@@ -748,14 +751,146 @@ def show_title(canvas, win, clock):
         canvas.blit(ctrl1, (CANVAS_W//2 - ctrl1.get_width()//2, 148))
         canvas.blit(ctrl2, (CANVAS_W//2 - ctrl2.get_width()//2, 158))
 
-        # Parpadeo inicio
+        # Opción 1: Comenzar
         if (t // 500) % 2 == 0:
-            start = font_hint.render(">> PRESIONA ENTER PARA COMENZAR <<", False, (255,255,100))
-            canvas.blit(start, (CANVAS_W//2 - start.get_width()//2, 175))
+            start = font_hint.render(">> ENTER: COMENZAR DESDE NIVEL 1 <<", False, (255,255,100))
+            canvas.blit(start, (CANVAS_W//2 - start.get_width()//2, 176))
+
+        # Opción 2: Seleccionar nivel
+        sel = font_hint.render("S: Seleccionar nivel", False, (150,220,255))
+        canvas.blit(sel, (CANVAS_W//2 - sel.get_width()//2, 190))
+
+        # Opción 3: Salir
+        quit_opt = font_hint.render("ESC: Salir del juego", False, (220,100,100))
+        canvas.blit(quit_opt, (CANVAS_W//2 - quit_opt.get_width()//2, 203))
 
         # IFTS badge
         badge = font_hint.render("IFTS N°21 - 2025", False, (120,120,120))
         canvas.blit(badge, (CANVAS_W//2 - badge.get_width()//2, CANVAS_H - 12))
+
+        blit_canvas(win, canvas)
+        pygame.display.flip()
+        clock.tick(FPS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SELECTOR DE NIVEL
+# ─────────────────────────────────────────────────────────────────────────────
+def show_level_select(canvas, win, clock):
+    """Muestra una pantalla para elegir el nivel 1-5. Retorna el nivel elegido."""
+    font_big  = pygame.font.SysFont("monospace", 16, bold=True)
+    font_med  = pygame.font.SysFont("monospace", 12)
+    font_hint = pygame.font.SysFont("monospace", 11)
+
+    selected = 1
+    level_titles = {k: v["title"] for k, v in LEVEL_CONFIG.items()}
+
+    while True:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if ev.type == pygame.KEYDOWN:
+                if ev.key == pygame.K_ESCAPE:
+                    return 1  # volver con nivel 1 por defecto
+                if ev.key in (pygame.K_UP, pygame.K_w):
+                    selected = max(1, selected - 1)
+                if ev.key in (pygame.K_DOWN, pygame.K_s):
+                    selected = min(5, selected + 1)
+                if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    return selected
+                # Teclas numéricas 1-5
+                if pygame.K_1 <= ev.key <= pygame.K_5:
+                    return ev.key - pygame.K_0
+
+        canvas.fill((5, 10, 25))
+
+        header = font_big.render("SELECCIONAR NIVEL", False, (255, 220, 0))
+        canvas.blit(header, (CANVAS_W//2 - header.get_width()//2, 40))
+        pygame.draw.line(canvas, (80, 60, 160),
+                         (CANVAS_W//4, 58), (CANVAS_W*3//4, 58), 1)
+
+        for i in range(1, 6):
+            y = 70 + (i - 1) * 28
+            if i == selected:
+                pygame.draw.rect(canvas, (40, 40, 80), (CANVAS_W//2 - 110, y - 2, 220, 22))
+                col = (255, 255, 100)
+                arrow = font_med.render(">", False, (255, 200, 0))
+                canvas.blit(arrow, (CANVAS_W//2 - 118, y + 2))
+            else:
+                col = (160, 160, 200)
+            lbl = font_med.render(f"{i}. {level_titles[i]}", False, col)
+            canvas.blit(lbl, (CANVAS_W//2 - lbl.get_width()//2, y + 2))
+
+        hint1 = font_hint.render("Flechas/W/S: mover  |  ENTER o 1-5: elegir", False, (120,120,120))
+        hint2 = font_hint.render("ESC: volver", False, (100,100,100))
+        canvas.blit(hint1, (CANVAS_W//2 - hint1.get_width()//2, CANVAS_H - 28))
+        canvas.blit(hint2, (CANVAS_W//2 - hint2.get_width()//2, CANVAS_H - 15))
+
+        blit_canvas(win, canvas)
+        pygame.display.flip()
+        clock.tick(FPS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MENÚ DE PAUSA
+# ─────────────────────────────────────────────────────────────────────────────
+def show_pause(canvas, win, clock):
+    """Superpone el menú de pausa sobre el frame actual. Retorna 'continue' o 'menu'."""
+    font_big  = pygame.font.SysFont("monospace", 20, bold=True)
+    font_med  = pygame.font.SysFont("monospace", 13)
+    font_hint = pygame.font.SysFont("monospace", 10)
+
+    frozen  = canvas.copy()
+    overlay = pygame.Surface((CANVAS_W, CANVAS_H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 170))
+
+    options = ["CONTINUAR", "IR AL MENÚ", "SALIR DEL JUEGO"]
+    colors  = [(100, 255, 100), (180, 180, 255), (255, 80, 80)]
+    selected = 0
+
+    while True:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if ev.type == pygame.KEYDOWN:
+                if ev.key == pygame.K_ESCAPE:
+                    return 'continue'
+                if ev.key in (pygame.K_UP, pygame.K_w):
+                    selected = (selected - 1) % len(options)
+                if ev.key in (pygame.K_DOWN, pygame.K_s):
+                    selected = (selected + 1) % len(options)
+                if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if selected == 0:
+                        return 'continue'
+                    elif selected == 1:
+                        return 'menu'
+                    else:
+                        pygame.quit(); sys.exit()
+
+        canvas.blit(frozen, (0, 0))
+        canvas.blit(overlay, (0, 0))
+
+        title = font_big.render("— PAUSA —", False, (255, 220, 0))
+        canvas.blit(title, (CANVAS_W//2 - title.get_width()//2, 78))
+        pygame.draw.line(canvas, (100, 80, 200),
+                         (CANVAS_W//2 - 70, 100), (CANVAS_W//2 + 70, 100), 1)
+
+        for i, opt in enumerate(options):
+            y = 112 + i * 28
+            if i == selected:
+                pygame.draw.rect(canvas, (35, 35, 75),
+                                 (CANVAS_W//2 - 90, y - 3, 180, 22))
+                arrow = font_med.render(">", False, (255, 200, 0))
+                canvas.blit(arrow, (CANVAS_W//2 - 98, y))
+                col = colors[i]
+            else:
+                col = (130, 130, 150)
+            lbl = font_med.render(opt, False, col)
+            canvas.blit(lbl, (CANVAS_W//2 - lbl.get_width()//2, y))
+
+        hint = font_hint.render("W/S: mover   ENTER: confirmar   ESC: reanudar",
+                                False, (90, 90, 90))
+        canvas.blit(hint, (CANVAS_W//2 - hint.get_width()//2, CANVAS_H - 14))
 
         blit_canvas(win, canvas)
         pygame.display.flip()
@@ -834,15 +969,15 @@ def main():
     font_hud = pygame.font.SysFont("monospace", 12, bold=True)
 
     while True:
-        show_title(canvas, win, clock)
+        start_level = show_title(canvas, win, clock)
 
         player      = Player(60)
         total_score = 0
 
-        for level_num in range(1, 6):  # niveles 1 al 5
-            # Restaurar HP parcialmente entre niveles
+        for level_num in range(start_level, 6):  # niveles desde el elegido hasta 5
+            # Restaurar HP al comenzar desde un nivel distinto al 1
             if level_num > 1:
-                player.hp = min(player.max_hp, player.hp + 25)
+                player.hp = player.max_hp
                 player.x  = 60.0
                 player.y  = float(LEVEL_CONFIG[level_num]["floor_y"])
 
@@ -852,6 +987,9 @@ def main():
 
             if result == 'quit':
                 pygame.quit(); sys.exit()
+
+            if result == 'menu':
+                break  # salir del for de niveles → volver al while True → show_title
 
             if result == 'lose':
                 show_countdown(canvas, win, clock, [
@@ -912,7 +1050,7 @@ LEVEL_CONFIG = {
         "n_enemies":10, "title":"NIVEL 3 - LA BOMBONERA"},
     4: {"floor_y":248, "floor_top":233, "floor_bot":255,
         "bg":["assets/nivel4.png","assets/el-padrino-fondo.png"],
-        "boss_class":"BossAlCapone", "boss_name":"AL CAPONE",
+        "boss_class":"BossAlCapone", "boss_name":"AL PACINO",
         "n_enemies":10, "title":"NIVEL 4 - EL PADRINO"},
     5: {"floor_y":245, "floor_top":230, "floor_bot":253,
         "bg":["assets/nivel5.png","assets/el-eternauta-fondo.png"],
@@ -1072,14 +1210,15 @@ class BossGallina(BossBase):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  BOSS 4: AL CAPONE  (nivel 4 - El Padrino)
+#  BOSS 4: AL PACINO  (nivel 4 - El Padrino)
 # ═════════════════════════════════════════════════════════════════════════════
 class BossAlCapone(BossBase):
+    HEIGHT = 130  # más alto que el resto de jefes
     def __init__(self, x):
         walk_f = load_sheet("assets/alcapone_walk.png",   8, self.HEIGHT)
         atk_f  = load_sheet("assets/alcapone_attack.png", 4, self.HEIGHT)
         super().__init__(x, walk_f, atk_f, hp=1200, speed=0.7,
-                         name="AL CAPONE", bar_color=(180,140,40))
+                         name="AL PACINO", bar_color=(180,140,40))
         self.phase2_col = (220,60,20)
         # Al Capone: ataque fuerte pero lento
         self.atk_cd = 100
@@ -1131,7 +1270,7 @@ class Proyectil:
         # Colisión con jugador
         phb = player.get_hitbox()
         if phb.collidepoint(int(self.x), int(self.y)) and player.alive:
-            player.take_damage(18)
+            player.take_damage(10)
             self.alive = False
 
     def draw(self, canvas):
@@ -1177,14 +1316,14 @@ class BossEternauta(BossBase):
             self._advance_anim(self.atk_frames, delay=7)
 
         # Disparar
-        shoot_cd_val = 60 if self.phase == 1 else 35
+        shoot_cd_val = 100 if self.phase == 1 else 65
         if self.shoot_cd <= 0 and dist < self.SHOOT_RANGE * 1.2:
             # Disparar hacia el jugador
             proj_y = self.y - self.rect.h * 0.45  # altura del torso
             self.proyectiles.append(Proyectil(self.x, proj_y, self.facing))
             self.shoot_cd = shoot_cd_val
-            # Fase 2: doble disparo
-            if self.phase == 2:
+            # Fase 2: doble disparo (un disparo alto, uno normal)
+            if self.phase == 2 and random.random() < 0.5:
                 self.proyectiles.append(
                     Proyectil(self.x, proj_y - 8, self.facing))
 
@@ -1267,7 +1406,9 @@ def run_level(canvas, win, clock, player, level_num, font_hud):
                 return 'quit', score
             if ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
-                    return 'quit', score
+                    pause_result = show_pause(canvas, win, clock)
+                    if pause_result == 'menu':
+                        return 'menu', score
                 if ev.key in (pygame.K_SPACE, pygame.K_z, pygame.K_j):
                     player.start_attack()
 
