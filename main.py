@@ -9,7 +9,7 @@ import math
 CANVAS_W, CANVAS_H = 480, 270
 WIN_W,    WIN_H    = 1280, 720 
 FPS        = 60 
-TITLE      = "PEDRO BALANZAT - La Raqueta de la Justicia"
+TITLE      = "EL ASCENSO DE BALANZAT"
 
 FLOOR_Y    = 248   # Y donde pisan todos los personajes (midbottom)
 FLOOR_TOP  = 212   # límite superior de la zona caminable
@@ -96,7 +96,19 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
 
         self.atk_frames  = load_sheet("assets/spritesheet-bz.png",        7, self.HEIGHT)
-        self.walk_frames = load_sheet("assets/balanzat_movimiento.png",    8, self.HEIGHT)
+
+        # Cargamos con trim=True para recortar el espacio vacío de cada frame
+        # y luego normalizamos al ancho máximo para que el ancla midbottom sea estable
+        raw_walk = load_sheet("assets/balanzat_movimiento.png", 8, self.HEIGHT, trim=True)
+        max_w = max(f.get_width() for f in raw_walk)
+        self.walk_frames = []
+        for f in raw_walk:
+            if f.get_width() == max_w:
+                self.walk_frames.append(f)
+            else:
+                surf = pygame.Surface((max_w, f.get_height()), pygame.SRCALPHA)
+                surf.blit(f, ((max_w - f.get_width()) // 2, 0))
+                self.walk_frames.append(surf.convert_alpha())
 
         # Estado
         self.facing       = 1       # 1=der, -1=izq
@@ -207,13 +219,24 @@ class Player(pygame.sprite.Sprite):
         self._sync_rect()
 
         # ── ANIMACIÓN ────────────────────────────────────────────────────
+        was_walking = self.is_walking
+        self.is_walking = moving
+
         if moving:
-            spd = 90  # ms por frame walk
-            if now - self.last_anim >= spd:
-                self.last_anim  = now
-                self.cur_frame  = (self.cur_frame + 1) % len(self.walk_frames)
-                self._set_frame(self.walk_frames, self.cur_frame)
+            if not was_walking:
+                # Recién empieza a moverse: mostrar frame 0 y resetear timer
+                self.cur_frame = 0
+                self.last_anim = now
+                self._set_frame(self.walk_frames, 0)
+            else:
+                spd = 90  # ms por frame walk
+                if now - self.last_anim >= spd:
+                    self.last_anim = now
+                    self.cur_frame = (self.cur_frame + 1) % len(self.walk_frames)
+                    self._set_frame(self.walk_frames, self.cur_frame)
         else:
+            if was_walking:
+                self.last_anim = now
             self.cur_frame = 0
             self._set_frame(self.atk_frames, 0)
 
@@ -346,6 +369,148 @@ class Enemy(pygame.sprite.Sprite):
         bx, by = self.rect.x, self.rect.y - 5
         pygame.draw.rect(surface, (120, 0, 0), (bx, by, bw, 3))
         pygame.draw.rect(surface, (0, 210, 50), (bx, by, fill, 3))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CLASE BASE PARA ENEMIGOS CON SPRITESHEET CUSTOM
+# ─────────────────────────────────────────────────────────────────────────────
+class EnemyCustom(Enemy):
+    """Enemigo con sprites cargados desde assets. Hereda toda la lógica de Enemy."""
+    WALK_SHEET   = None
+    ATTACK_SHEET = None
+    N_WALK       = 8
+    N_ATTACK     = 4
+    HEIGHT       = 88
+    HP_AMOUNT    = 100
+
+    def __init__(self, x, y=None):
+        super().__init__(x, y)
+        self.walk_frames = load_sheet(self.WALK_SHEET,   self.N_WALK,   self.HEIGHT)
+        self.atk_frames  = load_sheet(self.ATTACK_SHEET, self.N_ATTACK, self.HEIGHT)
+        self.frames      = self.walk_frames
+        self.image       = self.frames[0]
+        self.rect        = self.image.get_rect()
+        self._sync_rect()
+        self.hp          = self.HP_AMOUNT
+        self.max_hp      = self.HP_AMOUNT
+
+    def update(self, player):
+        if not self.alive: return
+        dx   = player.x - self.x
+        dy   = player.y - self.y
+        dist = math.hypot(dx, dy)
+        self.facing = 1 if dx > 0 else -1
+        engage = self.rect.w * 0.7
+        if dist > engage:
+            if dist > 0:
+                self.x += (dx/dist) * self.speed
+                self.y += (dy/dist) * self.speed * 0.5
+            cur = self.walk_frames
+        else:
+            if self.atk_cd <= 0 and player.alive:
+                player.take_damage(6)
+                self.atk_cd = 90
+            cur = self.atk_frames
+        if self.atk_cd > 0: self.atk_cd -= 1
+        self.y = max(FLOOR_TOP, min(FLOOR_BOT, self.y))
+        self._sync_rect()
+        self.anim_t += 1
+        if self.anim_t >= 9:
+            self.anim_t = 0
+            self.fi = (self.fi + 1) % len(cur)
+            # Sprite por defecto mira a la DERECHA en estos sheets
+            # facing=1 (derecha) -> sin flip | facing=-1 (izquierda) -> flip
+            f = cur[self.fi]
+            if self.facing == -1:
+                f = pygame.transform.flip(f, True, False)
+            self.image = f
+            mb = self.rect.midbottom
+            self.rect = self.image.get_rect()
+            self.rect.midbottom = mb
+
+
+class EnemyIFTS(EnemyCustom):
+    WALK_SHEET   = "assets/ifts_enemy_walk.png"
+    ATTACK_SHEET = "assets/ifts_enemy_attack.png"
+    N_WALK, N_ATTACK = 8, 6
+    HP_AMOUNT = 44
+
+
+class EnemyBillyZane(EnemyCustom):
+    WALK_SHEET   = "assets/billy_enemy_walk.png"
+    ATTACK_SHEET = "assets/billy_enemy_attack.png"
+    N_WALK, N_ATTACK = 8, 4
+    HP_AMOUNT = 44
+
+
+class EnemyRiver(EnemyCustom):
+    WALK_SHEET   = "assets/river_enemy_walk.png"
+    ATTACK_SHEET = "assets/river_enemy_attack.png"
+    N_WALK, N_ATTACK = 4, 4
+    HP_AMOUNT = 44
+
+
+class EnemyMafia(EnemyCustom):
+    WALK_SHEET   = "assets/mafia_enemy_walk.png"
+    ATTACK_SHEET = "assets/mafia_enemy_attack.png"
+    N_WALK, N_ATTACK = 8, 6
+    HP_AMOUNT = 44
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ENEMIGO BICHO (nivel 5 - El Eternauta)
+# ─────────────────────────────────────────────────────────────────────────────
+class EnemyBicho(Enemy):
+    HEIGHT = 80
+
+    def __init__(self, x, y=None):
+        super().__init__(x, y)
+        self.walk_frames = load_sheet("assets/bicho_walk.png",   8, self.HEIGHT)
+        self.atk_frames  = load_sheet("assets/bicho_attack.png", 4, self.HEIGHT)
+        self.frames      = self.walk_frames
+        self.image       = self.frames[0]
+        self.rect        = self.image.get_rect()
+        self._sync_rect()
+        self.hp      = 66
+        self.max_hp  = 66
+        self.speed   = random.uniform(0.7, 1.4)
+        self.atk_cd  = random.randint(50, 100)
+        # Spritesheet mira a la izquierda por defecto
+        # Si viene desde la izquierda (x negativo) → facing=1 → flip
+        self.facing = -1 if x > 0 else 1
+
+    def update(self, player):
+        if not self.alive: return
+        dx   = player.x - self.x
+        dy   = player.y - self.y
+        dist = math.hypot(dx, dy)
+        self.facing = 1 if dx > 0 else -1
+        engage = self.rect.w * 0.7
+        if dist > engage:
+            if dist > 0:
+                self.x += (dx/dist) * self.speed
+                self.y += (dy/dist) * self.speed * 0.5
+            cur = self.walk_frames
+        else:
+            if self.atk_cd <= 0 and player.alive:
+                player.take_damage(8)
+                self.atk_cd = 80
+            cur = self.atk_frames
+        if self.atk_cd > 0: self.atk_cd -= 1
+        self.y = max(FLOOR_TOP, min(FLOOR_BOT, self.y))
+        self._sync_rect()
+        self.anim_t += 1
+        if self.anim_t >= 8:
+            self.anim_t = 0
+            self.fi = (self.fi + 1) % len(cur)
+            # Bicho mira derecha por defecto → flip solo cuando mira izquierda
+            f = cur[self.fi]
+            if self.facing == -1:
+                f = pygame.transform.flip(f, True, False)
+            self.image = f
+            mb = self.rect.midbottom
+            self.rect = self.image.get_rect()
+            self.rect.midbottom = mb
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -718,17 +883,17 @@ def show_title(canvas, win, clock):
                      for px,py,pvx,pvy,pc in particles]
 
         # Sombra del título
-        shadow = font_title.render("PEDRO BALANZAT", False, (60, 20, 20))
+        shadow = font_title.render("EL ASCENSO DE BALANZAT", False, (60, 20, 20))
         canvas.blit(shadow, (CANVAS_W//2 - shadow.get_width()//2 + 2, 52))
 
         # Título principal con efecto de color pulsante
         pulse = int(abs(math.sin(t * 0.004)) * 60)
         title_col = (255, 200 + pulse//3, pulse)
-        title = font_title.render("PEDRO BALANZAT", False, title_col)
+        title = font_title.render("EL ASCENSO DE BALANZAT", False, title_col)
         canvas.blit(title, (CANVAS_W//2 - title.get_width()//2, 50))
 
         # Subtítulo
-        sub1 = font_sub.render("La Raqueta de la Justicia", False, (200, 200, 255))
+        sub1 = font_sub.render("El Último Desafío", False, (200, 200, 255))
         canvas.blit(sub1, (CANVAS_W//2 - sub1.get_width()//2, 78))
 
         # VS
@@ -737,7 +902,7 @@ def show_title(canvas, win, clock):
 
         # Boss name
         boss_col = (255, int(80 + abs(math.sin(t*0.006))*120), 30)
-        boss = font_sub.render("FOREST GUMP", False, boss_col)
+        boss = font_sub.render("???", False, boss_col)
         canvas.blit(boss, (CANVAS_W//2 - boss.get_width()//2, 115))
 
         # Línea separadora decorativa
@@ -900,17 +1065,17 @@ def show_pause(canvas, win, clock):
 # ─────────────────────────────────────────────────────────────────────────────
 #  PANTALLA DE CUENTA REGRESIVA (continuar / volver al inicio)
 # ─────────────────────────────────────────────────────────────────────────────
-def show_countdown(canvas, win, clock, lines):
+def show_countdown(canvas, win, clock, lines, wait_seconds=10):
     """
-    Muestra el resultado con un contador de 10 segundos.
-    Retorna True si el jugador presionó una tecla (reiniciar ya),
-    False si el tiempo se agotó (volver al título).
+    Muestra el resultado con contador.
+    wait_seconds: tiempo de espera antes de continuar automáticamente.
+    Retorna True si el jugador presionó una tecla, False si expiró el tiempo.
     """
     font_big = pygame.font.SysFont("monospace", 24, bold=True)
     font_med = pygame.font.SysFont("monospace", 14)
     font_sml = pygame.font.SysFont("monospace", 11)
 
-    deadline = pygame.time.get_ticks() + 10000  # 10 segundos
+    deadline = pygame.time.get_ticks() + wait_seconds * 1000
 
     while True:
         for ev in pygame.event.get():
@@ -947,6 +1112,88 @@ def show_countdown(canvas, win, clock, lines):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  CRÉDITOS FINALES (video MP4)
+# ─────────────────────────────────────────────────────────────────────────────
+def play_credits(win, clock):
+    """Reproduce el video de créditos finales usando pygame + opencv si está disponible."""
+    try:
+        import cv2
+        cap = cv2.VideoCapture("assets/creditos-finales.mp4")
+        if not cap.isOpened():
+            raise Exception("No se pudo abrir el video")
+
+        fps_vid = cap.get(cv2.CAP_PROP_FPS) or 30
+        frame_delay = int(1000 / fps_vid)
+
+        # Reproducir audio de créditos
+        try:
+            pygame.mixer.music.load("assets/creditos-finales.mp3")
+            pygame.mixer.music.set_volume(1.0)
+            pygame.mixer.music.play(0)
+        except Exception as e:
+            print(f"[WARN] Audio créditos: {e}")
+
+        running = True
+        while running and cap.isOpened():
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    cap.release(); pygame.quit(); sys.exit()
+                if ev.type == pygame.KEYDOWN:
+                    running = False; break
+
+            ret, frame = cap.read()
+            if not ret:
+                break  # video terminó
+
+            # Convertir BGR (OpenCV) → RGB → Surface pygame
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h_vid, w_vid = frame_rgb.shape[:2]
+            surf = pygame.surfarray.make_surface(frame_rgb.swapaxes(0,1))
+            # Escalar para llenar la ventana
+            surf = pygame.transform.scale(surf, (WIN_W, WIN_H))
+            win.blit(surf, (0,0))
+            pygame.display.flip()
+            clock.tick(fps_vid)
+
+        cap.release()
+
+    except ImportError:
+        # opencv no disponible — mostrar pantalla de créditos en texto
+        _show_text_credits(win, clock)
+    except Exception as e:
+        print(f"[WARN] Video créditos: {e}")
+        _show_text_credits(win, clock)
+
+
+def _show_text_credits(win, clock):
+    """Pantalla de créditos en texto como fallback."""
+    font_big = pygame.font.SysFont("monospace", 36, bold=True)
+    font_med = pygame.font.SysFont("monospace", 18)
+    credits = [
+        ("PEDRO BALANZAT", (255,220,0),   font_big),
+        ("La Raqueta de la Justicia", (200,200,255), font_med),
+        ("", (0,0,0), font_med),
+        ("Desarrollo: IFTS N°21", (180,180,180), font_med),
+        ("", (0,0,0), font_med),
+        ("Gracias por jugar!", (100,255,100), font_big),
+    ]
+    start = pygame.time.get_ticks()
+    duration = 8000  # 8 segundos
+    while pygame.time.get_ticks() - start < duration:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
+            if ev.type == pygame.KEYDOWN: return
+        win.fill((8,8,20))
+        total_h = len(credits) * 50
+        sy = (WIN_H - total_h) // 2
+        for i, (text, color, font) in enumerate(credits):
+            t = font.render(text, True, color)
+            win.blit(t, (WIN_W//2 - t.get_width()//2, sy + i*50))
+        pygame.display.flip()
+        clock.tick(30)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 def blit_canvas(win, canvas):
@@ -961,6 +1208,12 @@ def blit_canvas(win, canvas):
 def main():
     global WIN_W, WIN_H
     pygame.init()
+    # Inicializar mixer para música
+    try:
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        pygame.mixer.music.set_volume(0.6)
+    except Exception as e:
+        print(f"[WARN] Mixer: {e}")
     win   = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     WIN_W, WIN_H = win.get_size()
     pygame.display.set_caption(TITLE)
@@ -1004,8 +1257,15 @@ def main():
                 ])
                 break  # volver al título
 
-            # Entre niveles: pantalla de éxito
+            # Entre niveles: reproducir nivel-pasado y esperar 10 seg
             boss_name = LEVEL_CONFIG[level_num]["boss_name"]
+            try:
+                pygame.mixer.music.load("assets/nivel-pasado.mp3")
+                pygame.mixer.music.set_volume(0.8)
+                pygame.mixer.music.play(0)
+            except Exception as e:
+                print(f"[WARN] nivel-pasado.mp3: {e}")
+
             if level_num < 5:
                 next_title = LEVEL_CONFIG[level_num+1]["title"]
                 show_countdown(canvas, win, clock, [
@@ -1017,9 +1277,9 @@ def main():
                      "color":(255,255,255), "size":"med"},
                     {"text": f"Siguiente: {next_title}",
                      "color":(180,180,255), "size":"med"},
-                ])
+                ], wait_seconds=10)
             else:
-                # Victoria final
+                # Victoria final → créditos
                 show_countdown(canvas, win, clock, [
                     {"text": "¡VICTORIA TOTAL!",
                      "color":(255,220,0), "size":"big"},
@@ -1029,7 +1289,9 @@ def main():
                      "color":(180,220,255), "size":"med"},
                     {"text": f"Score final: {total_score}",
                      "color":(255,255,255), "size":"med"},
-                ])
+                ], wait_seconds=10)
+                pygame.mixer.music.stop()
+                play_credits(win, clock)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1039,23 +1301,33 @@ LEVEL_CONFIG = {
     1: {"floor_y":248, "floor_top":230, "floor_bot":254,
         "bg":["assets/ifts21.png","assets/ifts.png"],
         "boss_class":"Boss", "boss_name":"FOREST GUMP",
-        "n_enemies":10, "title":"NIVEL 1 - IFTS 21"},
+        "n_enemies":20, "title":"NIVEL 1 - IFTS 21",
+        "soundtrack":"assets/ifts-soundtrack.mp3",
+        "enemy_class":"EnemyIFTS"},
     2: {"floor_y":240, "floor_top":228, "floor_bot":248,
         "bg":["assets/nivel2.png","assets/volver-al-futuro-fondo.png"],
         "boss_class":"Boss2", "boss_name":"BIFF TANNEN",
-        "n_enemies":10, "title":"NIVEL 2 - VOLVER AL FUTURO"},
+        "n_enemies":20, "title":"NIVEL 2 - VOLVER AL FUTURO",
+        "soundtrack":"assets/volver-al-futuro-soundtrack.mp3",
+        "enemy_class":"EnemyBillyZane"},
     3: {"floor_y":245, "floor_top":232, "floor_bot":252,
         "bg":["assets/nivel3.png","assets/la-bombonera-fondo.png"],
         "boss_class":"BossGallina", "boss_name":"LA GALLINA",
-        "n_enemies":10, "title":"NIVEL 3 - LA BOMBONERA"},
+        "n_enemies":20, "title":"NIVEL 3 - LA BOMBONERA",
+        "soundtrack":"assets/boca-soundtack.mp3",
+        "enemy_class":"EnemyRiver"},
     4: {"floor_y":248, "floor_top":233, "floor_bot":255,
         "bg":["assets/nivel4.png","assets/el-padrino-fondo.png"],
         "boss_class":"BossAlCapone", "boss_name":"AL PACINO",
-        "n_enemies":10, "title":"NIVEL 4 - EL PADRINO"},
+        "n_enemies":20, "title":"NIVEL 4 - EL PADRINO",
+        "soundtrack":"assets/mafia-soundtrack.mp3",
+        "enemy_class":"EnemyMafia"},
     5: {"floor_y":245, "floor_top":230, "floor_bot":253,
         "bg":["assets/nivel5.png","assets/el-eternauta-fondo.png"],
         "boss_class":"BossEternauta", "boss_name":"EL ETERNAUTA",
-        "n_enemies":10, "title":"NIVEL 5 - EL ETERNAUTA"},
+        "n_enemies":20, "title":"NIVEL 5 - EL ETERNAUTA",
+        "soundtrack":"assets/eternauta-soundtrack.mp3",
+        "enemy_class":"EnemyBicho"},
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1381,13 +1653,37 @@ def run_level(canvas, win, clock, player, level_num, font_hud):
         {"text": "Presiona cualquier tecla","color":(150,150,150),"size":"small","blink":True},
     ])
 
-    # Crear enemigos
+    # ── Música de fondo ──────────────────────────────────────────────────────
+    try:
+        pygame.mixer.music.load(cfg["soundtrack"])
+        pygame.mixer.music.set_volume(0.6)
+        pygame.mixer.music.play(-1)  # loop infinito
+    except Exception as e:
+        print(f"[WARN] Soundtrack: {e}")
+
+    # ── Crear enemigos ────────────────────────────────────────────────────────
+    ENEMY_MAP = {
+        "EnemyIFTS":     EnemyIFTS,
+        "EnemyBillyZane":EnemyBillyZane,
+        "EnemyRiver":    EnemyRiver,
+        "EnemyMafia":    EnemyMafia,
+        "EnemyBicho":    EnemyBicho,
+    }
+    EnemyClass = ENEMY_MAP.get(cfg.get("enemy_class"), Enemy)
     enemies = pygame.sprite.Group()
-    Enemy._eid = (level_num-1) * 10
-    for i in range(cfg["n_enemies"]):
-        ex = CANVAS_W + 40 + i * 60
+    Enemy._eid = (level_num-1) * 20
+    n = cfg["n_enemies"]
+    for i in range(n):
         ey = random.uniform(FLOOR_TOP + 5, FLOOR_BOT - 5)
-        enemies.add(Enemy(ex, ey))
+        if level_num == 5:
+            # Bichos vienen de ambos lados
+            if i % 2 == 0:
+                ex = -40 - (i // 2) * 80          # desde la IZQUIERDA
+            else:
+                ex = CANVAS_W + 40 + (i // 2) * 80  # desde la DERECHA
+        else:
+            ex = CANVAS_W + 40 + i * 55
+        enemies.add(EnemyClass(ex, ey))
 
     BossClass   = BOSS_CLASSES[cfg["boss_class"]]()
     boss        = None
@@ -1490,8 +1786,10 @@ def run_level(canvas, win, clock, player, level_num, font_hud):
         pygame.display.flip()
 
         if not player.alive:
+            pygame.mixer.music.stop()
             return 'lose', score
         if boss and not boss.alive:
+            pygame.mixer.music.stop()
             return 'win', score
 
 

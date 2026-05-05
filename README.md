@@ -92,3 +92,14 @@ uv add pygame-ce
 
 # Ejecutar el proyecto
 uv run python main.py
+# 1. Instalar Python (si no lo tiene)
+# Descargar de https://www.python.org/downloads/
+
+# 2. Instalar dependencias
+pip install pygame opencv-python
+
+# 3. Entrar a la carpeta del juego
+cd ruta/a/tu/carpeta
+
+# 4. Ejecutar
+python main.py
